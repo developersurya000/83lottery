@@ -7,7 +7,14 @@ const cookieParser = require("cookie-parser");
 const axiosHttp = require("axios"); // keep here
 
 const app = express();
-app.use(cors({ credentials: true, origin: "http://localhost:5173" }));
+app.use(cors({
+  credentials: true,
+  origin: [
+    "http://localhost:5173",  // Local dev
+    "https://83lottery.netlify.app"  // Your live frontend
+  ]
+}));
+
 app.use(express.json());
 app.use(cookieParser());
 
